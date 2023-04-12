@@ -1,0 +1,3 @@
+#!/bin/bash
+
+docker exec -it queue-postgres psql -U postgres
