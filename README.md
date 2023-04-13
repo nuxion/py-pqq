@@ -1,7 +1,7 @@
 # pqq
 
-[![PyPI - Version](https://img.shields.io/pypi/v/sqlqueue.svg)](https://pypi.org/project/sqlqueue)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sqlqueue.svg)](https://pypi.org/project/sqlqueue)
+[![PyPI - Version](https://img.shields.io/pypi/v/pqq.svg)](https://pypi.org/project/pqq)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pqq.svg)](https://pypi.org/project/pqq)
 
 -----
 
