@@ -6,7 +6,7 @@ from psycopg import AsyncConnection, Connection, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from pqq import types
+from pqq import types, db
 
 
 def _queue_query(prefix):
@@ -29,7 +29,7 @@ async def async_get_queues(conn: AsyncConnection, prefix="pqq_") -> List[types.T
 
 class Queue:
     def __init__(self, name: str, conn: Connection, sql_prefix="pqq_"):
-        self._qname = name
+        self.alias = name
         self.conn = conn
         self.conn.row_factory = dict_row
         self.conn.autocommit = False
@@ -37,14 +37,19 @@ class Queue:
 
     @property
     def name(self) -> str:
-        return f"{self._prefix}{self._qname}"
+        return f"{self._prefix}{self.alias}"
 
-    def create(self):
+    @classmethod
+    def create(cls, name: str, conn: Connection, sql_prefix="pqq_") -> "Queue":
         txt = sql.SQL(
-            f"CREATE TABLE IF NOT EXISTs {self.name}() INHERITS (base_queue);"
+            f"CREATE TABLE IF NOT EXISTs {sql_prefix}{name}() INHERITS (base_queue);"
         )
-        self.conn.execute(txt)
-        self.conn.commit()
+        conn.execute(txt)
+        conn.commit()
+        db.register_db_enum(conn, "job_state", types.JobStatus)
+
+        obj = cls(name=name, conn=conn, sql_prefix=sql_prefix)
+        return obj
 
     def put(self, payload: Dict[str, Any]) -> types.Job:
         txt = sql.SQL(
@@ -149,21 +154,33 @@ class Queue:
 
 
 class AsyncQueue:
-    def __init__(self, name: str, conn: AsyncConnection):
-        self.name = name
+    def __init__(self, name: str, conn: AsyncConnection, sql_prefix="pqq_"):
+        self.alias = name
         self.conn = conn
         self.conn.row_factory = dict_row
+        self._prefix = sql_prefix
+
+    @property
+    def name(self) -> str:
+        return f"{self._prefix}{self.alias}"
 
     @classmethod
-    async def create(cls, name: str, conn: AsyncConnection) -> "AsyncQueue":
+    async def create(
+        cls, name: str, conn: AsyncConnection, sql_prefix="pqq_"
+    ) -> "AsyncQueue":
         conn.row_factory = dict_row
         await conn.set_autocommit(False)
-        txt = sql.SQL(f"CREATE TABLE IF NOT EXISTs {name}() INHERITS (base_queue);")
+
+        txt = sql.SQL(
+            f"CREATE TABLE IF NOT EXISTs {sql_prefix}{name}() INHERITS (base_queue);"
+        )
+
         async with conn.cursor() as acur:
             await acur.execute(txt)
             await conn.commit()
 
-        obj = cls(name=name, conn=conn)
+        await db.async_register_db_enum(conn, "job_state", types.JobStatus)
+        obj = cls(name=name, conn=conn, sql_prefix=sql_prefix)
         return obj
 
     async def put(self, payload: Dict[str, Any]) -> types.Job:
@@ -178,7 +195,7 @@ class AsyncQueue:
             await self.conn.commit()
         return types.Job(**row)
 
-    async def change_state(self, jobid: int, state: str):
+    async def change_state(self, jobid: int, state: types.JobStatus):
         txt = sql.SQL(
             "UPDATE {table} SET state = %s, updated_at = %s where id = %s;".format(
                 table=self.name

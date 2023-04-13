@@ -6,7 +6,7 @@
 -- 18 up
 
 -- DROP TYPE IF EXISTS job_state;
--- CREATE TYPE job_state AS ENUM ('inactive', 'active', 'failed', 'finished');
+CREATE TYPE job_state AS ENUM ('inactive', 'active', 'failed', 'finished');
 DO
 $$
 BEGIN
@@ -25,6 +25,7 @@ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS base_queue (
   id       BIGSERIAL NOT NULL PRIMARY KEY,
   payload   JSONB NOT NULL CHECK(JSONB_TYPEOF(payload) = 'object'),
+  alias   TEXT DEFAULT NULL,
   try_count INT NOT NULL DEFAULT 0,
   max_tries INT NOT NULL DEFAULT 3,
   timeout INT NOT NULL DEFAULT 60,

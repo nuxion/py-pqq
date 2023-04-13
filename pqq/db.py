@@ -33,7 +33,12 @@ def run_migration(dsn, fp: str):
 
 
 def register_db_enum(conn, sql_name: str, enum_type: Enum):
-    enum = EnumInfo(conn, sql_name)
+    enum = EnumInfo.fetch(conn, sql_name)
+    register_enum(enum, conn, enum_type)
+
+
+async def async_register_db_enum(conn, sql_name: str, enum_type: Enum):
+    enum = await EnumInfo.fetch(conn, sql_name)
     register_enum(enum, conn, enum_type)
 
 
