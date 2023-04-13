@@ -5,7 +5,7 @@ from psycopg import Connection, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from sqlqueue import types
+from pqq import types
 
 
 class Queue:

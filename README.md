@@ -1,4 +1,4 @@
-# sqlqueue
+# pqq
 
 [![PyPI - Version](https://img.shields.io/pypi/v/sqlqueue.svg)](https://pypi.org/project/sqlqueue)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sqlqueue.svg)](https://pypi.org/project/sqlqueue)
@@ -7,29 +7,19 @@
 
 ## Description
 
-This is a template used to start python projects. 
+`pqq` stands for PostgreSQL Queue. It's a simple queue impletation using postgres. There are different implementations of this. The main inspirations come from:
 
-It can be used as if clonning the git repository, or using degit:
+- https://metacpan.org/release/SRI/Minion-10.25/source/lib/Minion/Backend/resources/migrations/pg.sql
+- https://dev.to/mikevv/simple-queue-with-postgresql-1ngc
+
+One of the benefits of using postgres is that it should be easy to implement in other languages. For that reason this repository is called py-pqq.
+
+## Installing
 
 ```console
-degit https://github.com/nuxion/python-template <your-project-name>
+pip install pqq
 ```
-
-After that run `rename.sh` script to refactor folders and names to the new one:
-
-```console
-./rename.sh <your-project-name>
-```
-
-## Features
-
-- Makefile for common tasks
-- Sphinx 
-- pytest
-- `.gitignore` for python + nodejs projects + emacs + vim + vscode (using topal gitignore generation tool)
-- jupyter as optional dependency + jupytext
-- linting tools
 
 ## License
 
-`sqlqueue` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
+`pqq` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.

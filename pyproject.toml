@@ -38,12 +38,12 @@ jupyter = [
 dynamic = ["version"]
 
 [project.urls]
-Documentation = "https://github.com/nuxion/sqlqueue#readme"
-Issues = "https://github.com/nuxion/sqlqueue/issues"
-Source = "https://github.com/nuxion/sqlqueue"
+Documentation = "https://github.com/nuxion/py-pqq#readme"
+Issues = "https://github.com/nuxion/py-pqq/issues"
+Source = "https://github.com/nuxion/py-pqq"
 
 [tool.hatch.version]
-path = "sqlqueue/__about__.py"
+path = "pqq/__about__.py"
 
 
 [tool.hatch.envs.default]
@@ -68,7 +68,7 @@ dependencies = [
 features = ["jupyter"]
 
 [tool.hatch.envs.default.scripts]
-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=sqlqueue --cov=tests {args}"
+cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=pqq --cov=tests {args}"
 no-cov = "cov --no-cov {args}"
 
 [[tool.hatch.envs.test.matrix]]
@@ -78,7 +78,7 @@ python = ["37", "38", "39", "310", "311"]
 branch = true
 parallel = true
 omit = [
-  "sqlqueue/__about__.py",
+  "pqq/__about__.py",
 ]
 
 [tool.coverage.report]
