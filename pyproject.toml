@@ -29,13 +29,15 @@ dependencies = [
   "pydantic",
 ]
 
+dynamic = ["version"]
+
 [project.optional-dependencies]
 jupyter = [
    "jupyterlab~=3.6.2",
    "jupytext~=1.14.5",
 ]
 
-dynamic = ["version"]
+
 
 [project.urls]
 Documentation = "https://github.com/nuxion/py-pqq#readme"
