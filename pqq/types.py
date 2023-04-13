@@ -5,7 +5,12 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 
-class JobStatus:
+class Table(BaseModel):
+    schema_: str
+    name: str
+
+
+class JobStatus(Enum):
     inactive = auto()
     active = auto()
     failed = auto()

@@ -5,9 +5,7 @@ from psycopg.types.enum import EnumInfo, register_enum
 # import signal
 
 
-SELECT_TABLES = "SELECT table_schema,table_name FROM information_schema.tables WHERE table_schema = '{}' ORDER BY table_schema,table_name".format(
-    "public"
-)
+SELECT_TABLES = "SELECT table_schema,table_name FROM information_schema.tables WHERE table_schema = '{}' ORDER BY table_schema,table_name"
 
 
 def create_conn(dsn: str, autocommit=True) -> psycopg.Connection:

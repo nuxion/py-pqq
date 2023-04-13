@@ -9,12 +9,35 @@ from psycopg.types.json import Jsonb
 from pqq import types
 
 
+def _queue_query(prefix):
+    return f"SELECT table_schema,table_name FROM information_schema.tables WHERE table_name like '{prefix}%' ORDER BY table_schema,table_name"
+
+
+def get_queues(conn: Connection, prefix="pqq_") -> List[types.Table]:
+    stmt = sql.SQL(_queue_query(prefix))
+    rows = conn.execute(stmt).fetchall()
+    return [types.Table(schema_=r[0], name=r[1]) for r in rows]
+
+
+async def async_get_queues(conn: AsyncConnection, prefix="pqq_") -> List[types.Table]:
+    async with conn.cursor() as acur:
+        stmt = sql.SQL(_queue_query(prefix))
+        await acur.execute(stmt)
+        rows = await acur.fetchall()
+    return [types.Table(schema_=r[0], name=r[1]) for r in rows]
+
+
 class Queue:
-    def __init__(self, name: str, conn: Connection):
-        self.name = name
+    def __init__(self, name: str, conn: Connection, sql_prefix="pqq_"):
+        self._qname = name
         self.conn = conn
         self.conn.row_factory = dict_row
         self.conn.autocommit = False
+        self._prefix = sql_prefix
+
+    @property
+    def name(self) -> str:
+        return f"{self._prefix}{self._qname}"
 
     def create(self):
         txt = sql.SQL(
