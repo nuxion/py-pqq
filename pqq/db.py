@@ -15,8 +15,8 @@ def create_conn(dsn: str, autocommit=True) -> psycopg.Connection:
     return conn
 
 
-def async_create_conn(dsn, autocommit=True):
-    aconn = psycopg.AsyncConnection.connect(dsn, autocommit=autocommit)
+async def async_create_conn(dsn, autocommit=True):
+    aconn = await psycopg.AsyncConnection.connect(dsn, autocommit=autocommit)
     return aconn
 
 
