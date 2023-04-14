@@ -1,12 +1,13 @@
+import asyncio
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from psycopg import AsyncConnection, Connection, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from pqq import types, db
+from pqq import db, defaults, errors, types
 
 
 def _queue_query(prefix):
@@ -42,22 +43,25 @@ class Queue:
     @classmethod
     def create(cls, name: str, conn: Connection, sql_prefix="pqq_") -> "Queue":
         txt = sql.SQL(
-            f"CREATE TABLE IF NOT EXISTs {sql_prefix}{name}() INHERITS (base_queue);"
+            f"""CREATE TABLE IF NOT EXISTS {sql_prefix}{name}(
+                 LIKE {defaults.BASE_TABLE} INCLUDING INDEXES
+            ) INHERITS ({defaults.BASE_TABLE});"""
         )
         conn.execute(txt)
         conn.commit()
-        db.register_db_enum(conn, "job_state", types.JobStatus)
+        db.register_db_enum(conn, defaults.ENUM_STATE, types.JobStatus)
 
         obj = cls(name=name, conn=conn, sql_prefix=sql_prefix)
         return obj
 
-    def put(self, payload: Dict[str, Any]) -> types.Job:
+    def put(self, req: types.JobRequest) -> types.Job:
         txt = sql.SQL(
-            "insert into {table} (payload) values (%s) returning *;".format(
-                table=self.name
-            )
+            f"insert into {self.name} (payload, timeout, max_tries, priority, alias) values (%(payload)s, %(timeout)s, %(max_tries)s, %(priority)s, %(alias)s) returning *;"
         )
-        row = self.conn.execute(txt, [Jsonb(payload)]).fetchone()
+
+        _dict = req.dict()
+        _dict["payload"] = Jsonb(req.payload)
+        row = self.conn.execute(txt, _dict).fetchone()
         self.conn.commit()
         return types.Job(**row)
 
@@ -71,6 +75,16 @@ class Queue:
         self.conn.execute(txt, [state, now, jobid])
         self.conn.commit()
 
+    def set_result(self, jobid: int, state: types.JobStatus, result: Dict[str, Any]):
+        txt = sql.SQL(
+            "UPDATE {table} SET state = %s, updated_at = %s, result = %s where id = %s;".format(
+                table=self.name
+            )
+        )
+        now = datetime.utcnow()
+        self.conn.execute(txt, [state, now, result, Jsonb(jobid)])
+        self.conn.commit()
+
     def get(self, block=True, timeout=10.0) -> types.Job:
         started = time.time()
         if block and timeout:
@@ -81,11 +95,11 @@ class Queue:
                     return rsp
                 elapsed = time.time() - started
                 if elapsed > timeout:
-                    raise TimeoutError()
+                    raise errors.EmptyQueue(self.alias)
                 time.sleep(0.1)
         rsp = self.get_nowait()
         if not rsp:
-            raise KeyError()
+            raise errors.EmptyQueue(self.alias)
         return rsp
 
     def get_nowait(self) -> Union[types.Job, None]:
@@ -104,10 +118,15 @@ class Queue:
             self.conn.commit()
         return j
 
-    def get_all(self):
-        txt = sql.SQL("select * from {table};".format(table=self.name))
-        rows = self.conn.execute(txt).fetchall()
-        return rows
+    def get_all(self, filter_by: Optional[types.JobStatus] = None) -> List[types.Job]:
+        if filter_by:
+            txt = sql.SQL(f"select * from {self.name} where state=%s;")
+            rows = self.conn.execute(txt, [filter_by]).fetchall()
+        else:
+            txt = sql.SQL("select * from {table};".format(table=self.name))
+            rows = self.conn.execute(txt).fetchall()
+
+        return [types.Job(**r) for r in rows]
 
     def clean_failed(self):
         txt = sql.SQL("delete from {table} where state = %s;".format(table=self.name))
@@ -135,8 +154,8 @@ class Queue:
             curr.execute(txt)
         self.conn.commit()
 
-    def delete_job(self, jobid: int):
-        txt = sql.SQL("delete from {table} where id = %s;".format(table=self.name))
+    def delete_job(self, jobid: str):
+        txt = sql.SQL(f"delete from {self.name} where jobid = %s;")
         curr = self.conn.cursor()
         with self.conn.transaction():
             curr.execute(txt, [jobid])
@@ -172,25 +191,29 @@ class AsyncQueue:
         await conn.set_autocommit(False)
 
         txt = sql.SQL(
-            f"CREATE TABLE IF NOT EXISTs {sql_prefix}{name}() INHERITS (base_queue);"
+            f"""CREATE TABLE IF NOT EXISTS {sql_prefix}{name}(
+                 LIKE {defaults.BASE_TABLE} INCLUDING INDEXES
+            ) INHERITS ({defaults.BASE_TABLE});"""
         )
 
         async with conn.cursor() as acur:
             await acur.execute(txt)
             await conn.commit()
 
-        await db.async_register_db_enum(conn, "job_state", types.JobStatus)
+        await db.async_register_db_enum(conn, defaults.ENUM_STATE, types.JobStatus)
         obj = cls(name=name, conn=conn, sql_prefix=sql_prefix)
         return obj
 
-    async def put(self, payload: Dict[str, Any]) -> types.Job:
+    async def put(self, req: types.JobRequest) -> types.Job:
         txt = sql.SQL(
-            "insert into {table} (payload) values (%s) returning *;".format(
+            "insert into {table} (payload, timeout, max_tries, priority, alias) values (%(payload)s, %(timeout)s, %(max_tries)s, %(priority)s, %(alias)s) returning *;".format(
                 table=self.name
             )
         )
         async with self.conn.cursor() as acur:
-            await acur.execute(txt, [Jsonb(payload)])
+            _dict = req.dict()
+            _dict["payload"] = Jsonb(req.payload)
+            await acur.execute(txt, _dict)
             row = await acur.fetchone()
             await self.conn.commit()
         return types.Job(**row)
@@ -206,8 +229,30 @@ class AsyncQueue:
             await acur.execute(txt, [state, now, jobid])
             await self.conn.commit()
 
+    async def set_result(
+        self, jobid: str, state: types.JobStatus, result: Dict[str, Any]
+    ):
+        txt = sql.SQL(
+            f"UPDATE {self.name} SET state = %s, updated_at = %s, result = %s where jobid = %s;"
+        )
+        now = datetime.utcnow()
+        async with self.conn.cursor() as acur:
+            await acur.execute(txt, [state, now, Jsonb(result), jobid])
+            await self.conn.commit()
+
     async def get(self, block=True, timeout=10.0) -> types.Job:
-        raise NotImplementedError()
+        fut = asyncio.create_task(self.get_nowait())
+        if block:
+            try:
+                res = await asyncio.wait_for(fut, timeout=timeout)
+                return res
+            except TimeoutError as e:
+                raise errors.EmptyQueue(self.alias) from e
+        else:
+            res = await fut
+            if not res:
+                raise errors.EmptyQueue(self.alias)
+            return res
 
     async def get_nowait(self) -> Union[types.Job, None]:
         now = datetime.utcnow()
@@ -227,10 +272,17 @@ class AsyncQueue:
                 await self.conn.commit()
         return j
 
-    async def get_all(self) -> List[types.Job]:
-        txt = sql.SQL("select * from {table};".format(table=self.name))
+    async def get_all(
+        self, filter_by: Optional[types.JobStatus] = None
+    ) -> List[types.Job]:
         async with self.conn.cursor() as acur:
-            await acur.execute(txt)
+            if filter_by:
+                txt = sql.SQL(f"select * from {self.name} where state = %s;")
+                await acur.execute(txt, [filter_by])
+            else:
+                txt = sql.SQL(f"select * from {self.name} where state = %s;")
+                await acur.execute(txt)
+
             rows = await acur.fetchall()
         return [types.Job(**r) for r in rows]
 
@@ -259,16 +311,14 @@ class AsyncQueue:
             await acur.execute(txt)
             await self.conn.commit()
 
-    async def delete_job(self, jobid: int):
-        txt = sql.SQL("delete from {table} where id = %s;".format(table=self.name))
+    async def delete_job(self, jobid: str):
+        txt = sql.SQL(f"delete from {self.name} where jobid = %s;")
         async with self.conn.cursor() as acur:
             await acur.execute(txt, [jobid])
             await self.conn.commit()
 
-    async def get_job(self, jobid: int) -> types.Job:
-        txt = sql.SQL(
-            "select * from {table} where id = %s limit 1;".format(table=self.name)
-        )
+    async def get_job(self, jobid: str) -> types.Job:
+        txt = sql.SQL(f"select * from {self.name} where jobid = %s limit 1;")
 
         async with self.conn.cursor() as acur:
             await acur.execute(txt, [jobid])

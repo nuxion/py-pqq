@@ -67,7 +67,7 @@ logger = logging.getLogger("pqq")  # no cov
 """
 General pqq logger
 """
-logger.addFilter(_verbosity_filter)
+# logger.addFilter(_verbosity_filter)
 
 error_logger = logging.getLogger("pqq.error")  # no cov
 """
