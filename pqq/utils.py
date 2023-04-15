@@ -5,7 +5,7 @@ from typing import Callable, Dict
 
 from pydantic import BaseModel
 
-from pqq.types import Job
+from pqq.types import Job, Payload
 
 
 def _get_function(fullname) -> Callable:
@@ -32,22 +32,18 @@ def elapsed_time_from_start2finish(job: Job):
     return (job.updated_at - job.created_at).total_seconds()
 
 
-def get_kwargs_from_func(job: Job, fn: Callable) -> Dict[str, BaseModel]:
+def get_kwargs_from_func(payload: Payload, fn: Callable) -> Dict[str, BaseModel]:
     annot = list(fn.__annotations__.keys())
     kwargs = {}
     if annot:
         params_key = annot[0]
-        params = fn.__annotations__[params_key](**job.payload.params)
+        params = fn.__annotations__[params_key](**payload.params)
         kwargs = {params_key: params}
     return kwargs
 
 
-def get_function(base_package, job: Job) -> Callable:
-    _name = job.name
-    if "." not in _name:
-        fn = _get_function(f"{base_package}.tasks.{_name}")
-    else:
-        fn = _get_function(_name)
+def get_function(payload: Payload) -> Callable:
+    fn = _get_function(payload.func)
     return fn
 
 

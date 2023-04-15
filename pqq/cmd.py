@@ -133,8 +133,14 @@ def _wait(queue, timeout):
     help="sql string connection",
 )
 @click.option("--queue", "-q", default=["default"], multiple=True, help="queues names")
-def worker_cmd(queue, sql):
-    worker.run_io(sql, queue)
+@click.option(
+    "--w-type", "-t", default="io", type=click.Choice(["io", "cpu"]), help="Worker type"
+)
+def worker_cmd(queue, sql, w_type):
+    if w_type == "io":
+        worker.run_io(sql, queue)
+    else:
+        worker.run_cpu(sql, queue)
 
 
 @click.command(name="list")
@@ -208,6 +214,31 @@ def queues_cmd(sql):
     console.print(table)
 
 
+@click.command(name="run-job")
+@click.option(
+    "--sql",
+    default="host=localhost dbname=postgres user=postgres password=password",
+    show_default=True,
+    help="sql string connection",
+)
+@click.option("--param", "-p", multiple=True, help="define a param as <key>=<value>")
+@click.option("--alias", "-a", default=secrets.token_urlsafe(8))
+@click.option("--queue", "-a", default="default")
+@click.option("--func", "-f", help="Name of the function")
+def run_job(sql, param, alias, queue, func):
+    conn = db.create_conn(sql)
+    q = Queue.create(queue, conn)
+    params = {}
+    for p in param:
+        k, v = p.split("=")
+        params[k] = v
+    payload = {"func": func, "params": params}
+
+    req = types.JobRequest(payload=payload, alias=alias)
+    job = q.put(req)
+    console.print(job)
+
+
 cli.add_command(migrate)
 cli.add_command(send)
 cli.add_command(worker_cmd)
@@ -215,6 +246,7 @@ cli.add_command(get)
 cli.add_command(list_cmd)
 cli.add_command(del_cmd)
 cli.add_command(queues_cmd)
+cli.add_command(run_job)
 
 if __name__ == "__main__":
     cli()

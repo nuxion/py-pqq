@@ -65,7 +65,7 @@ class Queue:
         self.conn.commit()
         return types.Job(**row)
 
-    def change_state(self, jobid: int, state: str):
+    def change_state(self, jobid: int, state: types.JobStatus):
         txt = sql.SQL(
             "UPDATE {table} SET state = %s, updated_at = %s where id = %s;".format(
                 table=self.name
@@ -75,14 +75,13 @@ class Queue:
         self.conn.execute(txt, [state, now, jobid])
         self.conn.commit()
 
-    def set_result(self, jobid: int, state: types.JobStatus, result: Dict[str, Any]):
+    def set_result(self, jobid: str, state: types.JobStatus, result: Dict[str, Any]):
         txt = sql.SQL(
-            "UPDATE {table} SET state = %s, updated_at = %s, result = %s where id = %s;".format(
-                table=self.name
-            )
+            f"UPDATE {self.name} SET state = %s, updated_at = %s, result = %s "
+            "where jobid = %s;"
         )
         now = datetime.utcnow()
-        self.conn.execute(txt, [state, now, result, Jsonb(jobid)])
+        self.conn.execute(txt, [state, now, Jsonb(result), jobid])
         self.conn.commit()
 
     def get(self, block=True, timeout=10.0) -> types.Job:
@@ -233,7 +232,8 @@ class AsyncQueue:
         self, jobid: str, state: types.JobStatus, result: Dict[str, Any]
     ):
         txt = sql.SQL(
-            f"UPDATE {self.name} SET state = %s, updated_at = %s, result = %s where jobid = %s;"
+            f"UPDATE {self.name} SET state = %s, updated_at = %s, result = %s "
+            "where jobid = %s;"
         )
         now = datetime.utcnow()
         async with self.conn.cursor() as acur:

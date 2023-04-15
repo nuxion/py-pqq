@@ -1,26 +1,18 @@
 import asyncio
 import inspect
 import logging.config
+import os
+import time
 import traceback
 from datetime import datetime
 from functools import partial
-from os import getpid
 from typing import Dict, List
+from multiprocessing import Pool
 
 from pydantic import BaseModel
 
-from pqq import AsyncQueue, db, types, utils
-from pqq.log import error_logger, logger, LOGGING_CONFIG_DEFAULTS
-
-
-def _exec_task(base_package: str, job: types.Job):
-    # _name = job.name
-    # logger.info("Starting task %s", _name)
-    fn = utils.get_function(base_package, job)
-    kwargs = utils.get_kwargs_from_func(job, fn)
-    result = fn(**kwargs)
-    # logger.info("Finished task %s", _name)
-    return result
+from pqq import AsyncQueue, Queue, db, types, utils
+from pqq.log import LOGGING_CONFIG_DEFAULTS, error_logger, logger
 
 
 class _Task(BaseModel):
@@ -33,10 +25,39 @@ class _Task(BaseModel):
 
 
 def _is_a_executable_job(j: types.Job) -> bool:
-    if isinstance(j, dict):
-        if j.get("func"):
+    if isinstance(j.payload, dict):
+        if j.payload.get("func"):
             return True
     return False
+
+
+def _exec_task(sql_conf, qname: str, job: types.Job):
+    logger.info("Executing job %s [%s]", job.alias, job.id)
+    _conn = db.create_conn(sql_conf)
+    queue = Queue.create(qname, _conn)
+
+    result = None
+    payload = types.Payload(**job.payload)
+    fn = utils.get_function(payload)
+    kwargs = utils.get_kwargs_from_func(payload, fn)
+    status = types.JobStatus.active
+    result = None
+    try:
+        if inspect.iscoroutinefunction(fn):
+            raise AttributeError("Async functions not supported yet")
+        else:
+            result = fn(**kwargs)
+        status = types.JobStatus.finished
+    except Exception as e:
+        err = traceback.format_exc()
+        error_logger.error("Job error %s [%s]: %s", job.alias, job.id, e)
+        result = {"error": err}
+    finally:
+        job.updated_at = datetime.utcnow()
+        job.state = status
+        queue.set_result(job.jobid, status, result)
+        logger.info("job %s [%s] finished as %s", job.alias, job.id, job.state.value)
+    os._exit(0)
 
 
 class AsyncWorker:
@@ -60,9 +81,10 @@ class AsyncWorker:
         # with concurrent.futures.ProcessPoolExecutor(mp_context=ctx) as pool:
         logger.info("Executing job %s [%s]", job.alias, job.id)
         result = None
-        fn = utils.get_function(self._base_package, job)
+        payload = types.Payload(**job.payload)
+        fn = utils.get_function(payload)
 
-        kwargs = utils.get_kwargs_from_func(job, fn)
+        kwargs = utils.get_kwargs_from_func(payload, fn)
         status = types.JobStatus.active
         result = None
         try:
@@ -92,7 +114,7 @@ class AsyncWorker:
     ):
         job.updated_at = datetime.utcnow()
         job.state = status
-        await self.queues[qname].set_result(job.id, status, result)
+        await self.queues[qname].set_result(job.jobid, status, result)
 
         # await self.backend.set_result(task.id, result=result, status=status)
 
@@ -124,7 +146,7 @@ class AsyncWorker:
                         else:
                             logger.warning(
                                 "It's not a executable <Job id: %s>, 'func' param is missing.",
-                                job.id,
+                                job.jobid,
                             )
                             await self.queues[k].change_state(
                                 job.id, types.JobStatus.finished
@@ -133,7 +155,57 @@ class AsyncWorker:
                 await asyncio.sleep(self._wait_for)
 
 
-async def _worker_wrapper(loop, sql_conf, queues: List[str]):
+def _fork_workhorse(sql_conf, queue: str, job: types.Job):
+    newpid = os.fork()
+    if newpid == 0:
+        _exec_task(sql_conf, queue, job)
+        os._exit(0)
+    else:
+        pids = (os.getpid(), newpid)
+        logger.debug("parent: %d, child: %d\n" % pids)
+
+
+def _cpu_worker_wrapper(sql_conf, queues: List[str]):
+    _queues: Dict[str, Queue] = {}
+    for q in queues:
+        logger.info(">> initializing queue %s", q)
+        _conn = db.create_conn(sql_conf)
+        _q = Queue.create(q, _conn)
+        _queues[_q.alias] = _q
+
+    logger.info("> Starting worker")
+    while True:
+        for k, q2 in _queues.items():
+            job = q2.get_nowait()
+            if job:
+                if _is_a_executable_job(job):
+                    logger.info("job %s [%s] added", job.alias, job.id)
+                    _fork_workhorse(sql_conf, k, job)
+                else:
+                    logger.warning(
+                        "It's not a executable <Job id: %s>, 'func' param is missing.",
+                        job.jobid,
+                    )
+                    q2.change_state(job.id, types.JobStatus.finished)
+            else:
+                time.sleep(1)
+
+
+def run_cpu(sql_conf, queues: List[str], configure_logging=True, log_config=None):
+    pid = os.getpid()
+    if configure_logging:
+        dict_config = log_config or LOGGING_CONFIG_DEFAULTS
+        logging.config.dictConfig(dict_config)  # type: ignore
+
+    logger.info(">> CPU Bound worker reporting for duty: %s", pid)
+    try:
+        _cpu_worker_wrapper(sql_conf, queues)
+    except KeyboardInterrupt:
+        logger.info("Shutting down %s", pid)
+    logger.info("Stopping CPU bound worker [%s]. Goodbye", pid)
+
+
+async def _io_worker_wrapper(loop, sql_conf, queues: List[str], max_jobs):
     _queues = []
     for q in queues:
         logger.info(">> initializing queue %s", q)
@@ -141,12 +213,14 @@ async def _worker_wrapper(loop, sql_conf, queues: List[str]):
         _q = await AsyncQueue.create(q, _conn)
         _queues.append(_q)
 
-    w = AsyncWorker(loop, base_package="pqq", queues=_queues)
+    w = AsyncWorker(loop, base_package="pqq", queues=_queues, max_jobs=max_jobs)
     await w.run()
 
 
-def run_io(sql_conf, queues: List[str], configure_logging=True, log_config=None):
-    pid = getpid()
+def run_io(
+    sql_conf, queues: List[str], max_jobs=5, configure_logging=True, log_config=None
+):
+    pid = os.getpid()
     if configure_logging:
         dict_config = log_config or LOGGING_CONFIG_DEFAULTS
         logging.config.dictConfig(dict_config)  # type: ignore
@@ -155,7 +229,7 @@ def run_io(sql_conf, queues: List[str], configure_logging=True, log_config=None)
     loop = asyncio.new_event_loop()
     try:
         # loop.create_task(scheduler.exec_task(task))
-        loop.run_until_complete(_worker_wrapper(loop, sql_conf, queues))
+        loop.run_until_complete(_io_worker_wrapper(loop, sql_conf, queues, max_jobs))
     except KeyboardInterrupt:
         logger.info("Shutting down %s", pid)
     # finally:
