@@ -22,13 +22,9 @@ class JobStatus(Enum):
     finished = "finished"
 
 
-class Payload(BaseModel):
-    func: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-
-
 class JobRequest(BaseModel):
     payload: Dict[str, Any]
+    func: Optional[str] = None
     timeout: int = 60
     max_tries: int = 3
     # created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -38,7 +34,6 @@ class JobRequest(BaseModel):
 
 class Job(BaseModel):
     id: int
-    # payload: Union[Payload, Dict[str, Any]]
     jobid: str
     payload: Dict[str, Any]
     try_count: int
@@ -48,6 +43,7 @@ class Job(BaseModel):
     created_at: datetime
     updated_at: datetime
     priority: int
+    func: Optional[str] = None
     alias: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
 

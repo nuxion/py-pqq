@@ -7,7 +7,6 @@ import traceback
 from datetime import datetime
 from functools import partial
 from typing import Dict, List
-from multiprocessing import Pool
 
 from pydantic import BaseModel
 
@@ -24,27 +23,20 @@ class _Task(BaseModel):
         arbitrary_types_allowed = True
 
 
-def _is_a_executable_job(j: types.Job) -> bool:
-    if isinstance(j.payload, dict):
-        if j.payload.get("func"):
-            return True
-    return False
-
-
 def _exec_task(sql_conf, qname: str, job: types.Job):
     logger.info("Executing job %s [%s]", job.alias, job.id)
     _conn = db.create_conn(sql_conf)
     queue = Queue.create(qname, _conn)
 
     result = None
-    payload = types.Payload(**job.payload)
-    fn = utils.get_function(payload)
-    kwargs = utils.get_kwargs_from_func(payload, fn)
+    fn = utils.get_function(job.func)
+    kwargs = utils.get_kwargs_from_func(fn=fn, params=job.payload)
     status = types.JobStatus.active
     result = None
     try:
         if inspect.iscoroutinefunction(fn):
-            raise AttributeError("Async functions not supported yet")
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(fn(**kwargs))
         else:
             result = fn(**kwargs)
         status = types.JobStatus.finished
@@ -81,10 +73,9 @@ class AsyncWorker:
         # with concurrent.futures.ProcessPoolExecutor(mp_context=ctx) as pool:
         logger.info("Executing job %s [%s]", job.alias, job.id)
         result = None
-        payload = types.Payload(**job.payload)
-        fn = utils.get_function(payload)
+        fn = utils.get_function(job.func)
 
-        kwargs = utils.get_kwargs_from_func(payload, fn)
+        kwargs = utils.get_kwargs_from_func(fn=fn, params=job.payload)
         status = types.JobStatus.active
         result = None
         try:
@@ -139,9 +130,9 @@ class AsyncWorker:
                         await self._sentinel()
                     else:
                         await sem.acquire()
-                        if _is_a_executable_job(job):
+                        if job.func:
                             _task = self.start_task(k, job)
-                            logger.info("job %s [%s] added", job.alias, job.id)
+                            logger.info("job %s [%s] added", job.alias, job.jobid)
                             _task.add_done_callback(lambda _: sem.release())
                         else:
                             logger.warning(
@@ -178,8 +169,8 @@ def _cpu_worker_wrapper(sql_conf, queues: List[str]):
         for k, q2 in _queues.items():
             job = q2.get_nowait()
             if job:
-                if _is_a_executable_job(job):
-                    logger.info("job %s [%s] added", job.alias, job.id)
+                if job.func:
+                    logger.info("job %s [%s] added", job.alias, job.jobid)
                     _fork_workhorse(sql_conf, k, job)
                 else:
                     logger.warning(

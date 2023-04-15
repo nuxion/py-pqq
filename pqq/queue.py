@@ -56,10 +56,11 @@ class Queue:
 
     def put(self, req: types.JobRequest) -> types.Job:
         txt = sql.SQL(
-            f"insert into {self.name} (payload, timeout, max_tries, priority, alias) values (%(payload)s, %(timeout)s, %(max_tries)s, %(priority)s, %(alias)s) returning *;"
+            f"insert into {self.name} (payload, func, timeout, max_tries, priority, alias) values (%(payload)s, %(func)s, %(timeout)s, %(max_tries)s, %(priority)s, %(alias)s) returning *;"
         )
 
         _dict = req.dict()
+        breakpoint()
         _dict["payload"] = Jsonb(req.payload)
         row = self.conn.execute(txt, _dict).fetchone()
         self.conn.commit()

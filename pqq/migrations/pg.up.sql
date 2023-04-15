@@ -41,21 +41,19 @@ $$ language plpgsql;
 
 
 CREATE TABLE IF NOT EXISTS pqq_base (
-  id       BIGSERIAL NOT NULL PRIMARY KEY,
-  payload   JSONB NOT NULL CHECK(JSONB_TYPEOF(payload) = 'object'),
-  alias   TEXT DEFAULT NULL,
-  jobid   TEXT DEFAULT random_string(8),
-  try_count INT NOT NULL DEFAULT 0,
-  max_tries INT NOT NULL DEFAULT 3,
-  timeout INT NOT NULL DEFAULT 60,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  priority INT DEFAULT 0 NOT NULL,
-  -- parents  BIGINT[] NOT NULL DEFAULT '{}',
-  state    job_state NOT NULL DEFAULT 'inactive'::JOB_STATE,
-  -- task     TEXT NOT NULL,
-  -- worker   BIGINT
-  result   JSONB
+  id            BIGSERIAL NOT NULL PRIMARY KEY,
+  payload       JSONB NOT NULL CHECK(JSONB_TYPEOF(payload) = 'object'),
+  func          TEXT DEFAULT NULL,
+  alias         TEXT DEFAULT NULL,
+  jobid         TEXT DEFAULT random_string(8),
+  try_count     INT NOT NULL DEFAULT 0,
+  max_tries     INT NOT NULL DEFAULT 3,
+  timeout       INT NOT NULL DEFAULT 60,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  priority      INT DEFAULT 0 NOT NULL,
+  state         job_state NOT NULL DEFAULT 'inactive'::JOB_STATE,
+  result        JSONB
 
 );
 

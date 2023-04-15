@@ -171,7 +171,7 @@ def list_cmd(queue, sql):
             elapsed = f"{elapsed}s"
 
         table.add_row(
-            f"{t.id}",
+            f"{t.jobid}",
             f"{t.alias}",
             f"{t.state}",
             f"{elapsed}",
@@ -232,9 +232,7 @@ def run_job(sql, param, alias, queue, func):
     for p in param:
         k, v = p.split("=")
         params[k] = v
-    payload = {"func": func, "params": params}
-
-    req = types.JobRequest(payload=payload, alias=alias)
+    req = types.JobRequest(payload=params, alias=alias, func=func)
     job = q.put(req)
     console.print(job)
 
